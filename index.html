@@ -819,12 +819,23 @@ function joinRoom() {
 }
 
 function initPeer(peerId) {
-  peer = new Peer(peerId, { debug: 0 });
+  peer = new Peer(peerId, {
+    debug: 0,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+      ]
+    }
+  });
   peer.on('open', (id) => {
     myPeerId = id;
     if (isHost) {
       showWaiting();
-      // init game state
       G = {
         players: [{id: myPeerId, name: myName, hand:[], words:[], score:0}],
         yama: [], discards: [],
@@ -836,10 +847,15 @@ function initPeer(peerId) {
       myIndex = 0;
       updateWaitingUI();
     } else {
-      // Connect to host
+      setStatus('ホストに接続中...');
       const hostId = 'hirajan-' + roomCode + '-0';
       const conn = peer.connect(hostId, {reliable:true});
+      const connTimeout = setTimeout(() => {
+        setStatus('接続タイムアウト。合言葉を確認してもう一度お試しください。');
+        conn.close();
+      }, 15000);
       conn.on('open', () => {
+        clearTimeout(connTimeout);
         connections[hostId] = conn;
         conn.send({type:'join', name: myName, id: myPeerId});
         showWaiting();
@@ -847,20 +863,17 @@ function initPeer(peerId) {
         document.getElementById('waitStatus').textContent = 'ホストの開始を待っています...';
       });
       conn.on('data', onData);
-      conn.on('error', e => setStatus('接続エラー: ' + e));
+      conn.on('error', e => { clearTimeout(connTimeout); setStatus('接続エラー: ' + e); });
       conn.on('close', () => showNotif('ホストとの接続が切れました'));
     }
   });
   peer.on('connection', (conn) => {
-    // Host receives new connections
-    conn.on('open', () => {});
     conn.on('data', (data) => {
       if (data.type === 'join') {
         if (G.phase !== 'waiting') { conn.send({type:'full'}); return; }
         if (G.players.length >= 4) { conn.send({type:'full'}); return; }
         connections[data.id] = conn;
         G.players.push({id: data.id, name: data.name, hand:[], words:[], score:0});
-        conn.on('data', onData);
         broadcastState();
         updateWaitingUI();
       } else {
@@ -868,7 +881,6 @@ function initPeer(peerId) {
       }
     });
     conn.on('close', () => {
-      // remove player
       const pid = Object.keys(connections).find(k => connections[k] === conn);
       if (pid) {
         delete connections[pid];
@@ -878,8 +890,12 @@ function initPeer(peerId) {
       }
     });
   });
+  peer.on('disconnected', () => {
+    if (!peer.destroyed) peer.reconnect();
+  });
   peer.on('error', (e) => {
     if (e.type === 'peer-unavailable') setStatus('ルームが見つかりません。合言葉を確認してください。');
+    else if (e.type === 'unavailable-id') setStatus('接続IDが使用中です。もう一度部屋を作り直してください。');
     else setStatus('エラー: ' + e.message);
   });
 }
