@@ -32,13 +32,3 @@
 ```
 
     
-
----
-
-![](./2-most-commit-language.svg)
-
-```
-![](https://raw.githubusercontent.com/taroooth/taroooth/main/profile-summary-card-output/omni/2-most-commit-language.svg)
-```
-
-    
